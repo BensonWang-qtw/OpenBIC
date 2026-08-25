@@ -1,0 +1,42 @@
+/*
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+#ifndef PLAT_I3C_H
+#define PLAT_I3C_H
+
+#include "rg3mxxb12.h"
+#include "p3h284x.h"
+
+#define I3C_BUS3 2
+
+#define SEND_SETAASA_STACK_SIZE 1024
+#define SEND_SETAASA_TIME_MS 5000
+
+#define RG3MXXB12_CMD_INITIAL_SIZE 9
+#define P3H284X_CMD_INITIAL_SIZE 6
+
+#define LDO_VOLT                                                                                   \
+	V_LDO_SETTING(rg3mxxb12_ldo_1_2_volt, rg3mxxb12_ldo_1_2_volt, rg3mxxb12_ldo_1_2_volt,      \
+		      rg3mxxb12_ldo_1_2_volt)
+
+extern const uint8_t rg3mxxb12_cmd_initial[][2];
+extern const uint8_t p3h284x_cmd_initial[][2];
+extern const uint8_t rts4902a_cmd_initial[][2];
+
+void start_setaasa();
+void send_setaasa();
+
+#endif
