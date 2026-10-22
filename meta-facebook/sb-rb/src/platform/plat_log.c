@@ -33,6 +33,7 @@
 #include "plat_gpio.h"
 #include "plat_thermal.h"
 #include "shell_plat_power_sequence.h"
+#include "pmbus.h"
 
 LOG_MODULE_REGISTER(plat_log);
 
@@ -266,8 +267,43 @@ bool vr_fault_get_error_data(uint8_t sensor_id, uint8_t *data)
 {
 	CHECK_NULL_ARG_WITH_RETURN(data, false);
 
-	// vr status word
-	return get_raw_data_from_sensor_id(sensor_id, 0x79, data, 2);
+	bool ret = true;
+	uint8_t vr_status_buf[7] = { 0 };
+
+	if (!get_raw_data_from_sensor_id(sensor_id, PMBUS_STATUS_WORD, &vr_status_buf[0], 2)) {
+		LOG_ERR("Failed to read VR status word, sensor_id %d", sensor_id);
+		ret = false;
+	}
+
+	if (!get_raw_data_from_sensor_id(sensor_id, PMBUS_STATUS_VOUT, &vr_status_buf[2], 1)) {
+		LOG_ERR("Failed to read VR status vout, sensor_id %d", sensor_id);
+		ret = false;
+	}
+
+	if (!get_raw_data_from_sensor_id(sensor_id, PMBUS_STATUS_IOUT, &vr_status_buf[3], 1)) {
+		LOG_ERR("Failed to read VR status iout, sensor_id %d", sensor_id);
+		ret = false;
+	}
+
+	if (!get_raw_data_from_sensor_id(sensor_id, PMBUS_STATUS_INPUT, &vr_status_buf[4], 1)) {
+		LOG_ERR("Failed to read VR status input, sensor_id %d", sensor_id);
+		ret = false;
+	}
+
+	if (!get_raw_data_from_sensor_id(sensor_id, PMBUS_STATUS_TEMPERATURE, &vr_status_buf[5],
+					 1)) {
+		LOG_ERR("Failed to read VR status temperature, sensor_id %d", sensor_id);
+		ret = false;
+	}
+
+	if (!get_raw_data_from_sensor_id(sensor_id, PMBUS_STATUS_CML, &vr_status_buf[6], 1)) {
+		LOG_ERR("Failed to read VR status CML, sensor_id %d", sensor_id);
+		ret = false;
+	}
+
+	memcpy(data, vr_status_buf, sizeof(vr_status_buf));
+
+	return ret;
 }
 
 bool get_multi_vr_status(uint8_t alrt_index, uint8_t *data)
@@ -778,15 +814,6 @@ void error_log_event(uint16_t error_code, bool log_status)
 				} else {
 					//other case
 					log_todo = false; // Duplicate error, no need to log again
-					if (error_code != CLK_100MHZ_ERR_CODE &&
-					    error_code != CLK_312_5MHZ_ERR_CODE &&
-					    error_code != CLK_BUF0_100M_LOSB_PLD_ERR_CODE &&
-					    error_code != CLK_BUF1_100M_LOSB_PLD_ERR_CODE &&
-					    error_code != CLK_BUF2_100M_LOSB_PLD_ERR_CODE &&
-					    error_code != CLK_312_5MHZ_REINIT_ERR_CODE) {
-						LOG_INF("Duplicate error_code(log assert): 0x%x, log_status: %d",
-							error_code, log_status);
-					}
 					return;
 				}
 			} else if (log_status == LOG_DEASSERT) {
@@ -887,6 +914,33 @@ void error_log_event(uint16_t error_code, bool log_status)
 		// Clear error data if no valid data is found
 		memset(err_log_data[fru_count].error_data, 0,
 		       sizeof(err_log_data[fru_count].error_data));
+	}
+	// CLK bmc event will send if is the first time to assert
+	uint8_t bmc_err_type = 0;
+	const uint8_t *send_err_data = err_log_data[fru_count].error_data;
+	switch (error_code) {
+	case CLK_100MHZ_ERR_CODE:
+		bmc_err_type = CLOCK_APLL_UNLOCK_EVENT;
+		break;
+	case CLK_312_5MHZ_ERR_CODE:
+		bmc_err_type = CLK_312_5M_APLL_UNLOCK_EVENT;
+		break;
+	case CLK_BUF0_100M_LOSB_PLD_ERR_CODE:
+		bmc_err_type = CLK_BUF0_100M_LOSB_PLD_EVENT;
+		break;
+	case CLK_BUF1_100M_LOSB_PLD_ERR_CODE:
+		bmc_err_type = CLK_BUF1_100M_LOSB_PLD_EVENT;
+		break;
+	case CLK_BUF2_100M_LOSB_PLD_ERR_CODE:
+		bmc_err_type = CLK_BUF2_100M_LOSB_PLD_EVENT;
+		break;
+	default:
+		// other error code, no need to send bmc event
+		bmc_err_type = 0;
+	}
+	if (bmc_err_type != 0) {
+		// send bmc event for clock error
+		packaged_bmc_log(ASIC_MODULE_ERROR, bmc_err_type, send_err_data[0], 0);
 	}
 
 	if (!plat_read_cpld(CPLD_REGISTER_1ST_PART_START_OFFSET, err_log_data[fru_count].cpld_dump,

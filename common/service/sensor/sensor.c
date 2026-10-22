@@ -160,6 +160,8 @@ const char *const sensor_type_name[] = {
 	sensor_name_to_num(pex90144)
 	sensor_name_to_num(octeon)
 	sensor_name_to_num(tps25990)
+	sensor_name_to_num(raa229140a)
+	sensor_name_to_num(mp29526)
 };
 // clang-format on
 
@@ -401,6 +403,12 @@ SENSOR_DRIVE_INIT_DECLARE(octeon);
 #endif
 #ifndef DISABLE_TPS25990
 SENSOR_DRIVE_INIT_DECLARE(tps25990);
+#endif
+#ifdef ENABLE_RAA229140a
+SENSOR_DRIVE_INIT_DECLARE(raa229140a);
+#endif
+#ifdef ENABLE_MP29526
+SENSOR_DRIVE_INIT_DECLARE(mp29526);
 #endif
 
 // The sequence needs to same with SENSOR_DEV ID
@@ -809,6 +817,16 @@ sensor_drive_api sensor_drive_tbl[] = {
 #else
 	SENSOR_DRIVE_TYPE_UNUSE(tps25990),
 #endif
+#ifdef ENABLE_RAA229140a
+	SENSOR_DRIVE_TYPE_INIT_MAP(raa229140a),
+#else
+	SENSOR_DRIVE_TYPE_UNUSE(raa229140a),
+#endif
+#ifdef ENABLE_MP29526
+	SENSOR_DRIVE_TYPE_INIT_MAP(mp29526),
+#else
+	SENSOR_DRIVE_TYPE_UNUSE(mp29526),
+#endif
 
 };
 
@@ -1050,6 +1068,72 @@ __weak void plat_sensor_poll_post()
 	return;
 }
 
+#ifdef ENABLE_SENSOR_POLL_SEL
+__weak void plat_sensor_poll_state_changed(uint8_t sensor_num, bool enabled)
+{
+	ARG_UNUSED(sensor_num);
+	ARG_UNUSED(enabled);
+	return;
+}
+
+static void check_sensor_poll_state_change(void)
+{
+	static bool is_state_recorded = false;
+	static bool last_poll_enable_flag;
+	uint8_t changed_count = 0;
+	uint8_t changed_to_enabled_count = 0;
+
+	if ((sensor_config == NULL) || (sensor_config_count == 0)) {
+		return;
+	}
+
+	if (is_state_recorded == false) {
+		last_poll_enable_flag = sensor_poll_enable_flag;
+		for (uint8_t i = 0; i < sensor_config_count; i++) {
+			sensor_config[i].last_is_enable_polling =
+				sensor_config[i].is_enable_polling;
+		}
+		is_state_recorded = true;
+		return;
+	}
+
+	if (sensor_poll_enable_flag != last_poll_enable_flag) {
+		plat_sensor_poll_state_changed(SENSOR_POLL_GLOBAL_FLAG, sensor_poll_enable_flag);
+		last_poll_enable_flag = sensor_poll_enable_flag;
+	}
+
+	uint8_t changed_num[sensor_config_count];
+	bool changed_state[sensor_config_count];
+
+	for (uint8_t i = 0; i < sensor_config_count; i++) {
+		bool cur_state = sensor_config[i].is_enable_polling;
+		if (cur_state != sensor_config[i].last_is_enable_polling) {
+			changed_num[changed_count] = sensor_config[i].num;
+			changed_state[changed_count] = cur_state;
+			changed_count++;
+			if (cur_state) {
+				changed_to_enabled_count++;
+			}
+			sensor_config[i].last_is_enable_polling = cur_state;
+		}
+	}
+
+	bool is_all_changed = (changed_count == sensor_config_count) &&
+			      ((changed_to_enabled_count == 0) ||
+			       (changed_to_enabled_count == sensor_config_count));
+
+	if (is_all_changed) {
+		plat_sensor_poll_state_changed(SENSOR_POLL_ALL_SENSORS,
+					       changed_to_enabled_count == sensor_config_count);
+		return;
+	}
+
+	for (uint8_t i = 0; i < changed_count; i++) {
+		plat_sensor_poll_state_changed(changed_num[i], changed_state[i]);
+	}
+}
+#endif
+
 void sensor_poll_handler(void *arug0, void *arug1, void *arug2)
 {
 	uint16_t table_index = 0;
@@ -1064,6 +1148,9 @@ void sensor_poll_handler(void *arug0, void *arug1, void *arug2)
 	pal_set_sensor_poll_interval(&sensor_poll_interval_ms);
 
 	while (1) {
+#ifdef ENABLE_SENSOR_POLL_SEL
+		check_sensor_poll_state_change();
+#endif
 		for (table_index = 0; table_index < sensor_monitor_count; ++table_index) {
 			sensor_monitor_table_info *table_info = &sensor_monitor_table[table_index];
 
@@ -1585,4 +1672,11 @@ bool init_drive_type_delayed(sensor_cfg *cfg)
 bool get_sensor_init_done_flag()
 {
 	return is_sensor_initial_done;
+}
+
+__weak bool plat_sensor_clamp_negative_reading(uint8_t pmbus_cmd)
+{
+	ARG_UNUSED(pmbus_cmd);
+
+	return false;
 }
